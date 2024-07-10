@@ -29,6 +29,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.17.3
 )
 
+replace github.com/insomniacslk/dhcp => ../dhcp
+
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

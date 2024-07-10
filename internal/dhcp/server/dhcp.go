@@ -35,10 +35,10 @@ func (s *DHCP) Serve(ctx context.Context) error {
 	s.Logger.Info("Server listening on", "addr", s.Conn.LocalAddr())
 
 	nConn := ipv4.NewPacketConn(s.Conn)
-	if err := nConn.SetControlMessage(ipv4.FlagInterface, true); err != nil {
-		s.Logger.Info("error setting control message", "err", err)
-		return err
-	}
+	//if err := nConn.SetControlMessage(ipv4.FlagInterface, true); err != nil {
+	//	s.Logger.Info("error setting control message", "err", err)
+	//	return err
+	//}
 
 	defer func() {
 		_ = nConn.Close()
@@ -56,19 +56,25 @@ func (s *DHCP) Serve(ctx context.Context) error {
 			}
 			s.Logger.Info("error reading from packet conn", "err", err)
 			return err
-		}
+		} else {
+            s.Logger.Info("ReadFrom successful", "n", n, "cm", cm, "peer", peer)
+        }
 
 		m, err := dhcpv4.FromBytes(rbuf[:n])
 		if err != nil {
 			s.Logger.Info("error parsing DHCPv4 request", "err", err)
 			continue
-		}
+		} else {
+            s.Logger.Info("DHCPv4 request parsed successfully", "m", m)
+        }
 
 		upeer, ok := peer.(*net.UDPAddr)
 		if !ok {
 			s.Logger.Info("not a UDP connection? Peer is", "peer", peer)
 			continue
-		}
+		} else {
+            s.Logger.Info("UDP connection confirmed", "upeer", upeer)
+        }
 		// Set peer to broadcast if the client did not have an IP.
 		if upeer.IP == nil || upeer.IP.To4().Equal(net.IPv4zero) {
 			upeer = &net.UDPAddr{
@@ -78,12 +84,28 @@ func (s *DHCP) Serve(ctx context.Context) error {
 		}
 
 		var ifName string
-		if n, err := net.InterfaceByIndex(cm.IfIndex); err == nil {
-			ifName = n.Name
+		if cm != nil {
+			n, err := net.InterfaceByIndex(cm.IfIndex)
+			if err != nil {
+				s.Logger.Error(err, "Failed to get interface by index", "index", cm.IfIndex)
+			} else if n != nil {
+				ifName = n.Name
+			}
 		}
+		s.Logger.Info("Interface name", "ifName", ifName)
 
 		for _, handler := range s.Handlers {
-			go handler.Handle(ctx, nConn, data.Packet{Peer: upeer, Pkt: m, Md: &data.Metadata{IfName: ifName, IfIndex: cm.IfIndex}})
+			if handler != nil {
+				s.Logger.Info("Context: ", "ctx", ctx)
+				s.Logger.Info("Network Connection: ", "nConn", nConn)
+				var ifIndex int
+				if cm != nil {
+				    ifIndex = cm.IfIndex
+				}
+				packet := data.Packet{Peer: upeer, Pkt: m, Md: &data.Metadata{IfName: ifName, IfIndex: ifIndex}}
+				s.Logger.Info("Packet: ", "packet", packet)
+				go handler.Handle(ctx, nConn, packet)
+			}
 		}
 	}
 }
@@ -95,18 +117,17 @@ func (s *DHCP) Close() error {
 
 // NewServer initializes and returns a new Server object.
 func NewServer(ifname string, addr *net.UDPAddr, handler ...Handler) (*DHCP, error) {
-	s := &DHCP{
-		Handlers: handler,
-		Logger:   logr.Discard(),
-	}
+    s := &DHCP{
+        Handlers: handler,
+        Logger:   logr.Discard(),
+    }
 
-	if s.Conn == nil {
-		var err error
-		conn, err := server4.NewIPv4UDPConn(ifname, addr)
-		if err != nil {
-			return nil, err
-		}
-		s.Conn = conn
-	}
-	return s, nil
+    var err error
+    conn, err := server4.NewIPv4UDPConn(ifname, addr)
+    if err != nil {
+        return nil, err
+    }
+    s.Conn = conn
+
+    return s, nil
 }
